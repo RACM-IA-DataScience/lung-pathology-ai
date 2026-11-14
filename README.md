@@ -9,33 +9,51 @@
 
 Este proyecto implementa un modelo de inteligencia artificial basado en Deep Learning para la clasificación y detección de enfermedades torácicas (Neumonía Bacteriana, Neumonía Viral y COVID-19) o pulmones sanos a partir de radiografías de tórax (X-Rays). 
 
-El modelo utiliza la arquitectura **MobileNetV2** pre-entrenada con ImageNet (Transfer Learning) y una aplicación web interactiva desarrollada con **Streamlit** para realizar inferencias en tiempo real.
+El modelo soporta arquitecturas modernas (**DenseNet-121** por defecto, **ConvNeXt-Tiny** y **MobileNetV2**) mediante Transfer Learning con `tf.data`, junto con una aplicación web interactiva en **Streamlit** con explicabilidad visual **Grad-CAM / Grad-CAM++** en tiempo real.
 
 ## 🚀 Características Principales
-- **Clasificación de 4 Clases:** `Bacterial Pneumonia`, `Healthy`, `Viral Pneumonia` y `COVID-19`.
-- **Transfer Learning:** Uso de MobileNetV2 para eficiencia computacional y alta precisión.
-- **Fine-Tuning de 2 Fases:** Descongelamiento de las capas finales para ajustarse a características de radiografías.
-- **Data Augmentation:** Balanceo dinámico de datos de entrenamiento para prevenir sobreajuste.
-- **Interfaz Web (Streamlit):** Una aplicación fácil de usar que permite subir radiografías y obtener una predicción con su porcentaje de confianza.
+- **Clasificación Multiclase Dinámica:** `Bacterial Pneumonia`, `Healthy`, `Viral Pneumonia` y `covid-19` (adaptable dinámicamente al agregar nuevas carpetas de patologías).
+- **Backbones Especializados:** Selección entre **DenseNet-121** (estándar clínico en CXR), **ConvNeXt-Tiny** y **MobileNetV2** desde [`src/model_utils.py`](src/model_utils.py).
+- **Fine-Tuning de 2 Fases + Label Smoothing:** Descongelamiento del bloque superior (manteniendo `BatchNormalization` congelada) y suavizado de etiquetas (`0.05`) para mejor calibración clínica.
+- **Saneamiento y Split Sin Fugas (`GroupShuffleSplit`):** Deduplicación por linaje, hash exacto SHA-256 y similitud perceptual (`dHash-256` + MAE) + partición agrupada por paciente (`70% train / 15% val / 15% test`).
+- **Ingesta de Datasets Externos:** Soporte en [`scripts/ingestar_datasets.py`](scripts/ingestar_datasets.py) para **COVID-19 Radiography Database** (`COVID`, `Normal` adultos RSNA y `Lung_Opacity` RSNA), **COVID-QU-Ex** y **RSNA Pneumonia** (DICOM).
+- **Data Augmentation con `tf.data`:** Pipeline optimizado con transformaciones en grafo de TensorFlow preservando la lateralidad anatómica.
+- **Interfaz Web (Streamlit) + Grad-CAM++:** Visualización lado a lado de placa original y mapa de calor de atención pulmonar, estimación de zonas anatómicas activadas y alerta ante baja confianza (`< 60%`).
 
 ## 📋 Estructura del Proyecto
 
 El repositorio tiene la siguiente estructura de archivos principal:
 
 ```
-├── app.py                      # Aplicación web principal en Streamlit
-├── train_model.py              # Script principal para entrenar el modelo
-├── evaluate_model.py           # Script para evaluar el modelo y generar la matriz de confusión
-├── procesar_dataset.py         # Script para limpieza, redimensionamiento y preprocesamiento
-├── reorganizar_dataset.py      # Script para estructurar carpetas de entrenamiento/prueba
-├── requirements.txt            # Dependencias de Python necesarias para ejecutar el proyecto
-├── mapeo_clases.json           # Diccionario con el mapeo de clases e índices
-├── documentacion_proyecto.md   # Documentación extensa del proceso y optimización del modelo
-├── Notebook para presentacion.ipynb # Notebook interactivo (útil para la presentación o experimentación)
-└── modelo_chest_disease.keras  # Modelo final pre-entrenado (¡listo para usar en app.py!)
+├── src/
+│   ├── app.py                    # Interfaz Streamlit + Grad-CAM / Grad-CAM++ interactivo
+│   ├── model_utils.py            # Backbones (DenseNet121, ConvNeXtTiny, MobileNetV2) y Grad-CAM
+│   ├── train_model.py            # Entrenamiento en 2 fases con tf.data y label smoothing
+│   └── evaluate_model.py         # Evaluación en test, métricas JSON, matriz y mosaico Grad-CAM++
+├── scripts/
+│   ├── ingestar_datasets.py      # Descarga/ingesta de COVID-19 Radiography, COVID-QU-Ex y RSNA
+│   ├── procesar_dataset.py       # Deduplicación (linaje + SHA-256) y estandarización 224x224 RGB
+│   └── reorganizar_dataset.py    # Partición 70/15/15 agrupada por paciente + auditoría sin fugas
+├── config/
+│   ├── mapeo_clases.json         # Diccionario dinámico de clases e índices
+│   └── model_config.json         # Metadatos del backbone activo y capa objetivo Grad-CAM
+├── models/
+│   └── modelo_chest_disease.keras # Modelo entrenado
+├── results/
+│   ├── matriz_confusion.png      # Matriz de confusión (conteos y recall %)
+│   ├── gradcam_auditoria.png     # Mosaico de explicabilidad Grad-CAM++ en test
+│   └── metricas_evaluacion.json  # Reporte estructurado de métricas
+├── data/                         # Generado localmente (ignorado en git)
+│   ├── downloads/                # ZIPs/carpetas externas descargadas
+│   ├── raw/                      # Datasets crudos de entrada (solo lectura)
+│   ├── processed/{train,val,test}/ # Imágenes limpias 224x224 sin fugas
+│   └── dataset_manifest.csv      # Manifiesto auditable por paciente y hash
+├── documentacion_proyecto.md     # Documentación extensa del proceso y optimización del modelo
+├── DOCUMENTACION_TECNICA.md      # Resumen técnico y diagrama de flujo
+└── requirements.txt              # Dependencias de Python necesarias para ejecutar el proyecto
 ```
 
-*(Nota: Las carpetas de datos `Training Data/` y `Testing Data/` no se incluyen en el repositorio para no sobrecargar el almacenamiento, pero los scripts para procesarlos sí están disponibles).*
+*(Nota: Las carpetas de datos `data/`, `Training Data/` y `Testing Data/` están excluidas en `.gitignore` para no sobrecargar el repositorio).*
 
 ## ⚙️ Instalación y Configuración
 
@@ -73,15 +91,31 @@ Esto abrirá automáticamente una pestaña en tu navegador web donde podrás int
 
 ## 🧠 Entrenamiento y Evaluación (Opcional)
 
-Si deseas volver a entrenar el modelo o evaluar su rendimiento desde cero (asegúrate de tener las imágenes en las carpetas `Training Data/` y `Testing Data/` locales):
+Si deseas ampliar las 4 clases actuales (recomendado para corregir la baja muestra de `covid-19` y el sesgo pediátrico), reentrenar o evaluar:
 
-1. **Preprocesar los datos:** `python scripts/procesar_dataset.py`
-2. **Entrenar:** `python src/train_model.py`
-3. **Evaluar:** `python src/evaluate_model.py` (esto actualizará el archivo de la matriz de confusión).
+1. **Ingestar datasets externos (opcional, recomendado):**
+   - Con Kaggle CLI configurado: `python scripts/ingestar_datasets.py --dataset covid19-radiography --download`
+   - O colocando los ZIPs en `data/downloads/<dataset>/` y ejecutando sin `--download`.
+   - También soporta `--dataset covid-qu-ex` y `--dataset rsna-pneumonia`.
+2. **Deduplicar y estandarizar imágenes:** `python scripts/procesar_dataset.py`
+3. **Particionar por paciente (`70/15/15`) y verificar cero fugas:** `python scripts/reorganizar_dataset.py`
+4. **Entrenar (`DenseNet121` por defecto o `ConvNeXtTiny`):**
+   - `python src/train_model.py --backbone densenet121`
+   - `python src/train_model.py --backbone convnext_tiny`
+5. **Evaluar + auditoría Grad-CAM++:** `python src/evaluate_model.py` (actualiza `results/matriz_confusion.png`, `results/metricas_evaluacion.json` y `results/gradcam_auditoria.png`).
 
-## 📈 Resultados
+## 📈 Resultados (DenseNet-121 sobre 2,078 placas de test sin fugas)
 
-El modelo actual alcanza aproximadamente un **87% de precisión global**, con picos destacables de **100% de precisión y 87% de recall para pacientes sanos** (garantizando 0 falsos positivos para sanos) y **100% de precisión para COVID-19**. Para ver un desglose completo de métricas y la metodología de Data Augmentation, consulta [documentacion_proyecto.md](documentacion_proyecto.md).
+Tras eliminar duplicados recompresos (`73` exactos + `1,096` perceptuales), ampliar a **13,906 radiografías limpias** (mezcla pediátrica y de adultos RSNA/BIMCV/SIRM) y migrar a **DenseNet-121 + `tf.data` + Label Smoothing (`0.05`)**:
+
+- **Accuracy global en Test (`n = 2,078`):** **84.41%** (`ROC-AUC Macro OvR: 0.9663`)
+- **`covid-19` (`n = 507`):** Precisión **96.24%**, Recall **80.87%**, F1 **87.89%**
+- **`Healthy` (`n = 752`):** Precisión **87.61%**, Recall **94.95%**, F1 **91.13%**
+- **`Bacterial Pneumonia` (`n = 593`):** Precisión **78.69%**, Recall **79.09%**, F1 **78.89%**
+- **`Viral Pneumonia` (`n = 226`):** Precisión **66.80%**, Recall **71.24%**, F1 **68.95%**
+- **Generalización en adultos inéditos RSNA (`n = 400` fuera del dataset):** `71.0%` de detección en neumonía de adultos (frente a `5.5%` del modelo previo) y `98.0%` en sanos de adultos.
+
+Consulta el desglose completo y auditoría visual en [documentacion_proyecto.md](documentacion_proyecto.md), [results/metricas_evaluacion.json](results/metricas_evaluacion.json) y [results/gradcam_auditoria.png](results/gradcam_auditoria.png).
 
 ## 📝 Licencia / Autoría
 Desarrollado por Roberto Alejandro Chagra Martínez

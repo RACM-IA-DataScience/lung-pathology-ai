@@ -1,0 +1,77 @@
+{
+  "backbone": "densenet121",
+  "test_dir": "data\\processed\\test",
+  "num_samples": 2078,
+  "roc_auc_macro_ovr": 0.9662898887665982,
+  "classification_report": {
+    "Bacterial Pneumonia": {
+      "precision": 0.7869127516778524,
+      "recall": 0.790893760539629,
+      "f1-score": 0.7888982338099243,
+      "support": 593.0
+    },
+    "Healthy": {
+      "precision": 0.8760736196319019,
+      "recall": 0.949468085106383,
+      "f1-score": 0.9112954690491385,
+      "support": 752.0
+    },
+    "Viral Pneumonia": {
+      "precision": 0.6680497925311203,
+      "recall": 0.7123893805309734,
+      "f1-score": 0.6895074946466809,
+      "support": 226.0
+    },
+    "covid-19": {
+      "precision": 0.9624413145539906,
+      "recall": 0.8086785009861933,
+      "f1-score": 0.8788853161843515,
+      "support": 507.0
+    },
+    "accuracy": 0.8440808469682387,
+    "macro avg": {
+      "precision": 0.8233693695987162,
+      "recall": 0.8153574317907947,
+      "f1-score": 0.8171466284225238,
+      "support": 2078.0
+    },
+    "weighted avg": {
+      "precision": 0.849077778295988,
+      "recall": 0.8440808469682387,
+      "f1-score": 0.8443380146630671,
+      "support": 2078.0
+    }
+  },
+  "confusion_matrix_counts": [
+    [
+      469,
+      43,
+      75,
+      6
+    ],
+    [
+      25,
+      714,
+      4,
+      9
+    ],
+    [
+      59,
+      5,
+      161,
+      1
+    ],
+    [
+      43,
+      53,
+      1,
+      410
+    ]
+  ],
+  "class_names": [
+    "Bacterial Pneumonia",
+    "Healthy",
+    "Viral Pneumonia",
+    "covid-19"
+  ]
+}

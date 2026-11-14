@@ -1,0 +1,15 @@
+{
+  "backbone": "densenet121",
+  "img_size": [
+    224,
+    224
+  ],
+  "last_conv_layer": "gradcam_target",
+  "label_smoothing": 0.05,
+  "class_names": [
+    "Bacterial Pneumonia",
+    "Healthy",
+    "Viral Pneumonia",
+    "covid-19"
+  ]
+}

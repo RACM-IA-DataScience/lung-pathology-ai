@@ -1,164 +1,314 @@
-import os
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-import os
+"""Entrenamiento en dos fases (Transfer Learning + Fine-Tuning) con tf.data.
+
+Soporta arquitecturas modernas (`densenet121` por defecto, `convnext_tiny` y
+`mobilenet_v2`), lectura optimizada con `tf.data` sobre `data/processed/{train,val}`,
+label smoothing para calibración clínica y exportación de metadatos de backbone
+(`config/model_config.json`) compatibles con evaluación y Grad-CAM en Streamlit.
+"""
+
+from __future__ import annotations
+
+import argparse
 import json
+import os
+from pathlib import Path
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "1")
+
 import numpy as np
-from sklearn.utils.class_weight import compute_class_weight
-
-# Configuración de variables de entorno para limpieza de terminal
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
 import tensorflow as tf
-from tensorflow.keras import layers, models
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+from sklearn.utils.class_weight import compute_class_weight
+from tensorflow.keras import layers
 
-print("TensorFlow versión:", tf.__version__)
+try:
+    from src.model_utils import (
+        GRADCAM_LAYER_NAME,
+        IMG_SIZE,
+        build_classifier_model,
+        get_backbone_specs,
+        get_preprocess_fn,
+        unfreeze_top_layers,
+    )
+except ImportError:
+    from model_utils import (
+        GRADCAM_LAYER_NAME,
+        IMG_SIZE,
+        build_classifier_model,
+        get_backbone_specs,
+        get_preprocess_fn,
+        unfreeze_top_layers,
+    )
 
-print("\nCargando y configurando los generadores de imágenes...")
+BASE_DIR = Path(__file__).resolve().parent.parent
+AUTOTUNE = tf.data.AUTOTUNE
 
-# Generador de entrenamiento con Data Augmentation leve y preprocesamiento nativo
-# Se añade validation_split=0.2 para reservar el 20% de los datos reales de entrenamiento
-train_datagen = ImageDataGenerator(
-    preprocessing_function=preprocess_input,
-    rotation_range=5,
-    zoom_range=0.05,
-    width_shift_range=0.05,
-    height_shift_range=0.05,
-    brightness_range=[0.95, 1.05],
-    validation_split=0.2
-)
 
-# Generador de validación estricto (sin augmentation, pero con el mismo split)
-validation_datagen = ImageDataGenerator(
-    preprocessing_function=preprocess_input,
-    validation_split=0.2
-)
+def build_datasets(
+    data_dir: Path,
+    backbone: str,
+    batch_size: int,
+    seed: int,
+    use_cache: bool = False,
+) -> tuple[tf.data.Dataset, tf.data.Dataset, list[str], dict[int, float]]:
+    """Crea pipelines tf.data optimizados y calcula pesos balanceados sin fugas."""
+    train_dir = data_dir / "train"
+    val_dir = data_dir / "val"
 
-# Carga de datos
-# Carga de datos de entrenamiento (80% del Training Data)
-train_generator = train_datagen.flow_from_directory(
-    os.path.join(BASE_DIR, 'Training Data'),
-    target_size=(224, 224),
-    batch_size=32,
-    class_mode='categorical',
-    color_mode='rgb',
-    subset='training',
-    seed=42
-)
+    if not train_dir.exists() or not val_dir.exists():
+        raise FileNotFoundError(
+            f"No se encontraron '{train_dir}' y '{val_dir}'. "
+            "Ejecuta primero:\n"
+            "  python scripts/procesar_dataset.py\n"
+            "  python scripts/reorganizar_dataset.py"
+        )
 
-# Carga de datos de validación (20% del Training Data)
-validation_generator = validation_datagen.flow_from_directory(
-    os.path.join(BASE_DIR, 'Training Data'),
-    target_size=(224, 224),
-    batch_size=32,
-    class_mode='categorical',
-    color_mode='rgb',
-    subset='validation',
-    shuffle=False,
-    seed=42
-)
+    raw_train_ds = tf.keras.utils.image_dataset_from_directory(
+        train_dir,
+        labels="inferred",
+        label_mode="categorical",
+        color_mode="rgb",
+        batch_size=batch_size,
+        image_size=IMG_SIZE,
+        shuffle=True,
+        seed=seed,
+    )
+    raw_val_ds = tf.keras.utils.image_dataset_from_directory(
+        val_dir,
+        labels="inferred",
+        label_mode="categorical",
+        color_mode="rgb",
+        batch_size=batch_size,
+        image_size=IMG_SIZE,
+        shuffle=False,
+    )
 
-# Exportar el mapeo exacto de clases a un JSON para la aplicación web
-indices_clases = {v: k for k, v in train_generator.class_indices.items()}
-os.makedirs(os.path.join(BASE_DIR, 'config'), exist_ok=True)
-with open(os.path.join(BASE_DIR, 'config', 'mapeo_clases.json'), 'w') as f:
-    json.dump(indices_clases, f)
-print(f"\nMapeo de clases exportado: {indices_clases}")
+    class_names = list(raw_train_ds.class_names)
+    if list(raw_val_ds.class_names) != class_names:
+        raise ValueError(
+            f"Desajuste de clases entre train ({class_names}) y val ({raw_val_ds.class_names})."
+        )
 
-# Cálculo de pesos para evitar colapso de clase (atajos matemáticos)
-print("\nCalculando pesos de clase para balancear el set de datos...")
-pesos_clases_array = compute_class_weight(
-    class_weight='balanced',
-    classes=np.unique(train_generator.classes),
-    y=train_generator.classes
-)
-pesos_clases_dict = dict(enumerate(pesos_clases_array))
+    # Pesos de clase calculados sobre la distribución real y deduplicada de train
+    y_train_indices = []
+    print("\nDistribución real en entrenamiento:")
+    for idx, cls_name in enumerate(class_names):
+        cls_dir = train_dir / cls_name
+        count = sum(1 for entry in os.scandir(cls_dir) if entry.is_file())
+        y_train_indices.extend([idx] * count)
+        print(f" - [{idx}] {cls_name}: {count} imágenes")
 
-# Estrategia de pesos:
-# Utilizaremos los pesos balanceados calculados automáticamente para evitar
-# sesgos extremos hacia una sola clase.
-for idx, peso in pesos_clases_dict.items():
-    nombre = indices_clases[idx]
-    print(f" - Clase '{nombre}': Multiplicador ajustado a {peso:.2f}x")
-print("\nConstruyendo la arquitectura de red neuronal...")
+    y_array = np.array(y_train_indices, dtype=np.int32)
+    pesos_array = compute_class_weight(
+        class_weight="balanced", classes=np.unique(y_array), y=y_array
+    )
+    pesos_dict = {int(i): float(w) for i, w in enumerate(pesos_array)}
+    print("\nPesos de clase calculados:")
+    for idx, peso in pesos_dict.items():
+        print(f" - '{class_names[idx]}': {peso:.2f}x")
 
-# Importar MobileNetV2 sin su cabeza original
-base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
+    # Augmentation preservando lateralidad anatómica (sin volteo horizontal)
+    augmentation = tf.keras.Sequential(
+        [
+            layers.RandomRotation(factor=7.0 / 360.0, fill_mode="constant", seed=seed),
+            layers.RandomZoom(height_factor=0.08, width_factor=0.08, fill_mode="constant", seed=seed),
+            layers.RandomTranslation(height_factor=0.05, width_factor=0.05, fill_mode="constant", seed=seed),
+            layers.RandomContrast(factor=0.10, seed=seed),
+        ],
+        name="xray_augmentation",
+    )
 
-# FASE 1: Congelar la base extractora
-base_model.trainable = False
+    preprocess_fn = get_preprocess_fn(backbone)
 
-# Ensamblar la arquitectura
-model = models.Sequential([
-    base_model,
-    layers.GlobalAveragePooling2D(),
-    layers.Dense(128, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.01)),
-    layers.Dropout(0.4),
-    layers.Dense(4, activation='softmax')
-])
+    def prepare_train(images, labels):
+        images = tf.cast(images, tf.float32)
+        images = augmentation(images, training=True)
+        images = tf.clip_by_value(images, 0.0, 255.0)
+        images = preprocess_fn(images)
+        return images, labels
 
-print("\n=== FASE 1: Entrenando el clasificador superior (5 épocas) ===")
-model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-    loss='categorical_crossentropy',
-    metrics=['accuracy']
-)
+    def prepare_val(images, labels):
+        images = tf.cast(images, tf.float32)
+        images = preprocess_fn(images)
+        return images, labels
 
-early_stopping_fase1 = tf.keras.callbacks.EarlyStopping(
-    monitor='val_loss',
-    patience=2,
-    restore_best_weights=True,
-    verbose=1
-)
+    if use_cache:
+        def pack_uint8(images, labels):
+            return tf.cast(tf.round(tf.clip_by_value(images, 0.0, 255.0)), tf.uint8), labels
 
-model.fit(
-    train_generator,
-    epochs=5,
-    validation_data=validation_generator,
-    class_weight=pesos_clases_dict,
-    callbacks=[early_stopping_fase1]
-)
+        raw_train_ds = (
+            raw_train_ds.map(pack_uint8, num_parallel_calls=AUTOTUNE)
+            .cache()
+            .shuffle(buffer_size=1024, seed=seed, reshuffle_each_iteration=True)
+        )
+        raw_val_ds = raw_val_ds.map(pack_uint8, num_parallel_calls=AUTOTUNE).cache()
 
-print("\n=== FASE 2: Ajuste Fino / Fine-Tuning (15 épocas) ===")
-# Descongelar las últimas 20 capas del modelo base
-base_model.trainable = True
-for layer in base_model.layers[:-20]:
-    layer.trainable = False
+    train_ds = raw_train_ds.map(prepare_train, num_parallel_calls=AUTOTUNE).prefetch(AUTOTUNE)
+    val_ds = raw_val_ds.map(prepare_val, num_parallel_calls=AUTOTUNE).prefetch(AUTOTUNE)
+    return train_ds, val_ds, class_names, pesos_dict
 
-# REGLA DE ORO: Las capas BatchNormalization DEBEN permanecer congeladas en Transfer Learning
-# Si se descongelan, sus estadísticas móviles se destruyen y el modelo falla en las predicciones.
-for layer in base_model.layers:
-    if isinstance(layer, tf.keras.layers.BatchNormalization):
-        layer.trainable = False
 
-# Tasa de aprendizaje microscópica para modificaciones sutiles
-model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-    loss='categorical_crossentropy',
-    metrics=['accuracy']
-)
+def train(args: argparse.Namespace) -> None:
+    print("TensorFlow versión:", tf.__version__)
+    specs = get_backbone_specs()
+    print(f"Backbone seleccionado: {specs[args.backbone].display_name}")
 
-early_stopping_fase2 = tf.keras.callbacks.EarlyStopping(
-    monitor='val_loss',
-    patience=4,
-    restore_best_weights=True,
-    verbose=1
-)
+    tf.keras.utils.set_random_seed(args.seed)
 
-model.fit(
-    train_generator,
-    epochs=15,
-    validation_data=validation_generator,
-    class_weight=pesos_clases_dict,
-    callbacks=[early_stopping_fase2]
-)
+    data_path = Path(args.data_dir)
+    data_dir = data_path if data_path.is_absolute() else (BASE_DIR / data_path)
+    train_ds, val_ds, class_names, class_weights = build_datasets(
+        data_dir,
+        backbone=args.backbone,
+        batch_size=args.batch_size,
+        seed=args.seed,
+        use_cache=args.cache,
+    )
 
-# Guardar en formato moderno
-os.makedirs(os.path.join(BASE_DIR, 'models'), exist_ok=True)
-nombre_modelo = os.path.join(BASE_DIR, 'models', 'modelo_chest_disease.keras')
-model.save(nombre_modelo)
+    # Exportar mapeo dinámico de clases y configuración exacta del modelo
+    config_dir = BASE_DIR / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
 
-print(f"\n¡Entrenamiento completado! Modelo guardado como '{nombre_modelo}'")
+    indices_clases = {str(idx): name for idx, name in enumerate(class_names)}
+    with open(config_dir / "mapeo_clases.json", "w", encoding="utf-8") as f:
+        json.dump(indices_clases, f, indent=2, ensure_ascii=False)
+
+    model_config = {
+        "backbone": args.backbone,
+        "img_size": list(IMG_SIZE),
+        "last_conv_layer": GRADCAM_LAYER_NAME,
+        "label_smoothing": args.label_smoothing,
+        "class_names": class_names,
+    }
+    with open(config_dir / "model_config.json", "w", encoding="utf-8") as f:
+        json.dump(model_config, f, indent=2, ensure_ascii=False)
+
+    print(f"\nConfiguración exportada en 'config/mapeo_clases.json' y 'config/model_config.json'")
+
+    model, base_model = build_classifier_model(
+        backbone=args.backbone,
+        num_classes=len(class_names),
+        img_size=IMG_SIZE,
+        dropout_rate=args.dropout,
+        l2_reg=args.l2_reg,
+    )
+
+    models_dir = BASE_DIR / "models"
+    results_dir = BASE_DIR / "results"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    model_path = models_dir / args.model_name
+
+    loss_fn = tf.keras.losses.CategoricalCrossentropy(
+        label_smoothing=args.label_smoothing
+    )
+    metrics_list = [
+        "accuracy",
+        tf.keras.metrics.Precision(name="precision"),
+        tf.keras.metrics.Recall(name="recall"),
+        tf.keras.metrics.AUC(name="auc"),
+    ]
+
+    # Fase 1: Entrenar cabezal superior con backbone congelado
+    print(f"\n=== FASE 1: Entrenamiento de cabezal ({args.epochs_phase1} épocas) ===")
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr_phase1),
+        loss=loss_fn,
+        metrics=metrics_list,
+    )
+    callbacks_p1 = [
+        tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss", patience=3, restore_best_weights=True, verbose=1
+        )
+    ]
+    hist_p1 = model.fit(
+        train_ds,
+        epochs=args.epochs_phase1,
+        validation_data=val_ds,
+        class_weight=class_weights,
+        callbacks=callbacks_p1,
+        shuffle=False,
+    )
+
+    # Fase 2: Fine-Tuning del bloque superior manteniendo BatchNorm congelada
+    n_unfrozen = unfreeze_top_layers(
+        model=model,
+        base_model=base_model,
+        num_layers=args.unfreeze_layers,
+        backbone=args.backbone,
+    )
+    print(
+        f"\n=== FASE 2: Fine-Tuning ({args.epochs_phase2} épocas, "
+        f"{n_unfrozen} capas del backbone descongeladas) ==="
+    )
+
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr_phase2),
+        loss=loss_fn,
+        metrics=metrics_list,
+    )
+    callbacks_p2 = [
+        tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss", patience=5, restore_best_weights=True, verbose=1
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor="val_loss", factor=0.5, patience=2, min_lr=1e-7, verbose=1
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=str(model_path),
+            monitor="val_loss",
+            save_best_only=True,
+            verbose=1,
+        ),
+    ]
+    hist_p2 = model.fit(
+        train_ds,
+        epochs=args.epochs_phase2,
+        validation_data=val_ds,
+        class_weight=class_weights,
+        callbacks=callbacks_p2,
+        shuffle=False,
+    )
+
+    if not model_path.exists():
+        model.save(model_path)
+
+    history_payload = {
+        "backbone": args.backbone,
+        "phase1": {k: [float(x) for x in v] for k, v in hist_p1.history.items()},
+        "phase2": {k: [float(x) for x in v] for k, v in hist_p2.history.items()},
+    }
+    with open(results_dir / "training_history.json", "w", encoding="utf-8") as f:
+        json.dump(history_payload, f, indent=2)
+
+    print(f"\nEntrenamiento completado. Modelo guardado en '{model_path}'")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Entrena clasificador torácico con tf.data y DenseNet121/ConvNeXt/MobileNetV2."
+    )
+    parser.add_argument(
+        "--backbone",
+        choices=["densenet121", "convnext_tiny", "mobilenet_v2"],
+        default="densenet121",
+        help="Arquitectura base (default: densenet121).",
+    )
+    parser.add_argument("--data-dir", default="data/processed")
+    parser.add_argument("--model-name", default="modelo_chest_disease.keras")
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--epochs-phase1", type=int, default=8)
+    parser.add_argument("--epochs-phase2", type=int, default=25)
+    parser.add_argument("--lr-phase1", type=float, default=1e-3)
+    parser.add_argument("--lr-phase2", type=float, default=1e-5)
+    parser.add_argument("--unfreeze-layers", type=int, default=None)
+    parser.add_argument("--dropout", type=float, default=0.4)
+    parser.add_argument("--l2-reg", type=float, default=1e-4)
+    parser.add_argument("--label-smoothing", type=float, default=0.05)
+    parser.add_argument("--cache", action="store_true", help="Cachear datasets en RAM.")
+    parser.add_argument("--seed", type=int, default=42)
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    train(parse_args())
