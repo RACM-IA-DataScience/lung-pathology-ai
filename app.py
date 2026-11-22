@@ -44,8 +44,35 @@ MODEL_PATH = BASE_DIR / "models" / "modelo_chest_disease.keras"
 model = None
 MODEL_META = None
 
+def load_keras_model_safe(model_path):
+    try:
+        return tf.keras.models.load_model(model_path)
+    except Exception as exc:
+        import zipfile, tempfile, shutil
+        temp_dir = Path(tempfile.mkdtemp())
+        clean_model_file = temp_dir / "clean.keras"
+        def _clean(obj):
+            if isinstance(obj, dict):
+                obj.pop("quantization_config", None)
+                for v in obj.values():
+                    _clean(v)
+            elif isinstance(obj, list):
+                for v in obj:
+                    _clean(v)
+        with zipfile.ZipFile(model_path, 'r') as zin, zipfile.ZipFile(clean_model_file, 'w') as zout:
+            for item in zin.infolist():
+                d = zin.read(item.filename)
+                if item.filename == 'config.json':
+                    c = json.loads(d.decode('utf-8'))
+                    _clean(c)
+                    d = json.dumps(c).encode('utf-8')
+                zout.writestr(item, d)
+        m = tf.keras.models.load_model(clean_model_file)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return m
+
 if MODEL_PATH.exists():
-    model = tf.keras.models.load_model(MODEL_PATH)
+    model = load_keras_model_safe(MODEL_PATH)
     MODEL_META = load_model_metadata(BASE_DIR / "config", model=model)
 
 backbone = MODEL_META.get("backbone", "densenet121") if MODEL_META else "densenet121"
