@@ -1,3 +1,15 @@
+---
+title: AI Chest Disease Detection - RACM
+emoji: 🫁
+colorFrom: cyan
+colorTo: purple
+sdk: streamlit
+sdk_version: 1.35.0
+app_file: app.py
+pinned: false
+license: mit
+---
+
 # AI in HealthCare - Chest Disease Detection
 
 ![Python](https://img.shields.io/badge/Python-3.9+-blue)
