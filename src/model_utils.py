@@ -213,66 +213,32 @@ def compute_gradcam_heatmap(
 
     if use_direct_graph:
         target_layer = model.get_layer(GRADCAM_LAYER_NAME)
-        has_logits = "logits" in layer_names
-
-        # 1. Extractor de activaciones convolucionales y predicciones SIN GradientTape
-        # Esto ejecuta el backbone (427 capas) en modo forward puro, liberando memoria intermedia capa por capa.
-        if not hasattr(model, "_feature_extractor_cached"):
-            outputs_list = [target_layer.output, model.output]
-            if has_logits:
-                outputs_list.insert(1, model.get_layer("logits").output)
-            model._feature_extractor_cached = tf.keras.Model(
+        if "logits" in layer_names:
+            score_tensor = model.get_layer("logits").output
+            grad_model = tf.keras.Model(
                 inputs=model.inputs,
-                outputs=outputs_list,
+                outputs=[target_layer.output, score_tensor, model.output],
             )
-
-        extracted = model._feature_extractor_cached(x_tensor, training=False)
-        if has_logits:
-            conv_outputs, logits, preds = extracted
-        else:
-            conv_outputs, preds = extracted
-            logits = None
-
-        if isinstance(preds, list):
-            preds = preds[0]
-        target_idx = int(tf.argmax(preds[0])) if class_index is None else int(class_index)
-
-        # 2. Gradiente ultraligero: solo se rastrean las capas de clasificación superiores (Head)
-        # d(score)/d(conv_outputs) solo fluye por las capas posteriores a gradcam_target:
-        # global_avg_pool -> classifier_dense -> logits.
-        # Esto reduce la cinta de gradiente de 427 capas a solo 3 capas (< 100 KB de RAM),
-        # evitando que el OOM-Killer de Render elimine el proceso por superar los 512 MB.
-        head_layers = []
-        found_target = False
-        for l in model.layers:
-            if found_target:
-                head_layers.append(l)
-            elif l.name == GRADCAM_LAYER_NAME:
-                found_target = True
-
-        conv_var = tf.Variable(conv_outputs)
-        with tf.GradientTape() as tape:
-            tape.watch(conv_var)
-            h = conv_var
-            computed_logits = None
-            for hl in head_layers:
-                if hl.name == "classifier_dropout":
-                    continue
-                if hl.name == "predictions":
-                    break
-                h = hl(h, training=False)
-                if hl.name == "logits":
-                    computed_logits = h
-                    break
-
-            if computed_logits is not None:
-                score = computed_logits[:, target_idx]
-            elif logits is not None:
+            with tf.GradientTape() as tape:
+                conv_outputs, logits, preds = grad_model(x_tensor, training=False)
+                if isinstance(preds, list):
+                    preds = preds[0]
+                target_idx = int(tf.argmax(preds[0])) if class_index is None else int(class_index)
                 score = logits[:, target_idx]
-            else:
-                score = tf.math.log(tf.clip_by_value(h[:, target_idx], 1e-7, 1.0))
-
-        grads = tape.gradient(score, conv_var)
+            grads = tape.gradient(score, conv_outputs)
+        else:
+            grad_model = tf.keras.Model(
+                inputs=model.inputs,
+                outputs=[target_layer.output, model.output],
+            )
+            with tf.GradientTape() as tape:
+                conv_outputs, preds = grad_model(x_tensor, training=False)
+                if isinstance(preds, list):
+                    preds = preds[0]
+                target_idx = int(tf.argmax(preds[0])) if class_index is None else int(class_index)
+                # Usar log-probabilidades si no hay capa de logits explícita
+                score = tf.math.log(tf.clip_by_value(preds[:, target_idx], 1e-7, 1.0))
+            grads = tape.gradient(score, conv_outputs)
     else:
         # Compatibilidad con Sequential antiguo que envuelve un sub-modelo base
         sub_model_idx = None
