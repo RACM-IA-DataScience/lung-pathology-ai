@@ -85,7 +85,14 @@ if LOGO_PATH.exists():
     with open(LOGO_PATH, "rb") as f:
         logo_b64 = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode('utf-8')}"
 
-def predict_and_explain(image, method, alpha, colormap):
+# Soporte nativo para Hugging Face ZeroGPU
+try:
+    import spaces
+    has_spaces = True
+except ImportError:
+    has_spaces = False
+
+def _run_prediction(image, method, alpha, colormap):
     if image is None:
         return None, {}, "⚠️ Por favor, sube una radiografía de tórax (CXR)."
 
@@ -138,6 +145,14 @@ def predict_and_explain(image, method, alpha, colormap):
     </div>
     """
     return overlay_img, probs_dict, summary_html
+
+if has_spaces:
+    @spaces.GPU(duration=45)
+    def predict_and_explain(image, method, alpha, colormap):
+        return _run_prediction(image, method, alpha, colormap)
+else:
+    def predict_and_explain(image, method, alpha, colormap):
+        return _run_prediction(image, method, alpha, colormap)
 
 header_html = f"""
 <div style="background: radial-gradient(circle at 20% 20%, #0d1527 0%, #070b14 70%);
