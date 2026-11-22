@@ -100,20 +100,15 @@ streamlit run src/app.py
 ```
 Esto abrirá automáticamente una pestaña en tu navegador web donde podrás interactuar con el sistema de predicción.
 
-### 📱 Cliente Multiplataforma en Flutter (`lung_pathology_ai/`)
+### 🤗 Despliegue en Hugging Face Spaces (Gradio)
 
-El repositorio incluye una aplicación cliente en **Flutter** para ejecutar el sistema en **Windows Desktop**, **Web** y **Android** con la paleta visual neón/cyberpunk del creador **Roberto Alejandro Chagra Martínez (RACM)**:
+El proyecto incluye soporte nativo y gratuito para desplegarse en **Hugging Face Spaces** utilizando **Gradio** con la paleta visual e identidad del creador **Roberto Alejandro Chagra Martínez (RACM)**:
 
-1. **Iniciar el motor de inferencia y Grad-CAM++ (Python):**
+1. Crear un Space en [Hugging Face](https://huggingface.co/new-space) con SDK **Gradio** (Plantilla: **Blank**).
+2. Subir el repositorio:
    ```bash
-   python src/api.py
-   ```
-2. **Ejecutar la app en Flutter:**
-   ```bash
-   cd lung_pathology_ai
-   flutter run -d windows       # Para Escritorio Windows
-   flutter run -d web-server   # Para Navegador Web
-   flutter build apk --release # Para instalar en Teléfono Android
+   git remote add hf https://huggingface.co/spaces/TU_USUARIO/lung-pathology-ai
+   git push -f hf main
    ```
 
 ## 🧠 Entrenamiento y Evaluación (Opcional)
