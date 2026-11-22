@@ -1,9 +1,10 @@
-"""AI Chest Disease Detection - Gradio Interface para Hugging Face Spaces.
-
-Creador del Modelo: Roberto Alejandro Chagra Martínez
-Disciplina: Artificial Intelligence & Data Science (RACM AI)
-Arquitectura: DenseNet-121 con Interpretabilidad Grad-CAM / Grad-CAM++
-"""
+# IMPORTANTE PARA HUGGING FACE ZEROGPU:
+# "import spaces" debe ser la primera línea absoluta antes de cualquier librería con bindings de CUDA o TensorFlow.
+try:
+    import spaces
+    has_spaces = True
+except ImportError:
+    has_spaces = False
 
 import base64
 import json
@@ -63,7 +64,6 @@ def load_keras_model_safe(model_path):
         shutil.rmtree(temp_dir, ignore_errors=True)
         return m
 
-# Variables de caché para lazy-loading en ZeroGPU
 _cached_model = None
 _cached_meta = None
 
@@ -88,13 +88,6 @@ logo_b64 = ""
 if LOGO_PATH.exists():
     with open(LOGO_PATH, "rb") as f:
         logo_b64 = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode('utf-8')}"
-
-# Soporte nativo para Hugging Face ZeroGPU
-try:
-    import spaces
-    has_spaces = True
-except ImportError:
-    has_spaces = False
 
 def _run_prediction(image, method, alpha, colormap):
     if image is None:
@@ -124,7 +117,6 @@ def _run_prediction(image, method, alpha, colormap):
         confianza = float(predicciones[indice_pred] * 100.0)
         es_sano = clase_detectada.lower() in {"healthy", "normal"}
 
-        # Formatear diccionario de probabilidades para componente Label
         probs_dict = {
             CLASES_DICT[str(i)]: float(predicciones[i])
             for i in range(len(CLASES_DICT))
