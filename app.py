@@ -14,12 +14,6 @@ import numpy as np
 from PIL import Image
 import tensorflow as tf
 
-# En Hugging Face ZeroGPU / Cloud, ejecutar en CPU para evitar bloqueo de VRAM
-try:
-    tf.config.set_visible_devices([], "GPU")
-except Exception:
-    pass
-
 from src.model_utils import (
     IMG_SIZE,
     compute_gradcam_heatmap,
@@ -39,15 +33,13 @@ if CONFIG_PATH.exists():
 else:
     CLASES_DICT = {"0": "Bacterial Pneumonia", "1": "Healthy", "2": "Viral Pneumonia", "3": "covid-19"}
 
-# Cargar modelo entrenado
+# Ruta del modelo entrenado
 MODEL_PATH = BASE_DIR / "models" / "modelo_chest_disease.keras"
-model = None
-MODEL_META = None
 
 def load_keras_model_safe(model_path):
     try:
         return tf.keras.models.load_model(model_path)
-    except Exception as exc:
+    except Exception:
         import zipfile, tempfile, shutil
         temp_dir = Path(tempfile.mkdtemp())
         clean_model_file = temp_dir / "clean.keras"
@@ -71,12 +63,24 @@ def load_keras_model_safe(model_path):
         shutil.rmtree(temp_dir, ignore_errors=True)
         return m
 
-if MODEL_PATH.exists():
-    model = load_keras_model_safe(MODEL_PATH)
-    MODEL_META = load_model_metadata(BASE_DIR / "config", model=model)
+# Variables de caché para lazy-loading en ZeroGPU
+_cached_model = None
+_cached_meta = None
 
-backbone = MODEL_META.get("backbone", "densenet121") if MODEL_META else "densenet121"
-img_size = tuple(MODEL_META.get("img_size", list(IMG_SIZE))) if MODEL_META else IMG_SIZE
+def get_model():
+    global _cached_model, _cached_meta
+    if _cached_model is None:
+        if not MODEL_PATH.exists():
+            raise FileNotFoundError(f"No se encontró el modelo en {MODEL_PATH}")
+        try:
+            gpus = tf.config.list_physical_devices("GPU")
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+        except Exception:
+            pass
+        _cached_model = load_keras_model_safe(MODEL_PATH)
+        _cached_meta = load_model_metadata(BASE_DIR / "config", model=_cached_model)
+    return _cached_model, _cached_meta
 
 # Logotipo oficial RACM
 LOGO_PATH = BASE_DIR / "assets" / "racm_logo.jpg"
@@ -96,58 +100,70 @@ def _run_prediction(image, method, alpha, colormap):
     if image is None:
         return None, {}, "⚠️ Por favor, sube una radiografía de tórax (CXR)."
 
-    if model is None:
-        return None, {}, "❌ Error: El archivo del modelo neuronal no se encuentra cargado."
+    try:
+        model, meta = get_model()
+        backbone = meta.get("backbone", "densenet121") if meta else "densenet121"
+        img_size = tuple(meta.get("img_size", list(IMG_SIZE))) if meta else IMG_SIZE
 
-    if not isinstance(image, Image.Image):
-        image = Image.fromarray(image)
+        if not isinstance(image, Image.Image):
+            image = Image.fromarray(image)
 
-    # Inferencia y cálculo de tensores Grad-CAM
-    tensor_imagen = preprocess_pil_image(image, backbone=backbone, img_size=img_size)
-    heatmap, explained_idx, predicciones = compute_gradcam_heatmap(
-        model=model,
-        preprocessed_tensor=tensor_imagen,
-        class_index=None,
-        method=method,
-    )
+        # Inferencia y cálculo de tensores Grad-CAM
+        tensor_imagen = preprocess_pil_image(image, backbone=backbone, img_size=img_size)
+        heatmap, explained_idx, predicciones = compute_gradcam_heatmap(
+            model=model,
+            preprocessed_tensor=tensor_imagen,
+            class_index=None,
+            method=method,
+        )
 
-    overlay_img = overlay_gradcam(image, heatmap, alpha=alpha, cmap_name=colormap)
+        overlay_img = overlay_gradcam(image, heatmap, alpha=alpha, cmap_name=colormap)
 
-    indice_pred = int(np.argmax(predicciones))
-    clase_detectada = CLASES_DICT[str(indice_pred)]
-    confianza = float(predicciones[indice_pred] * 100.0)
-    es_sano = clase_detectada.lower() in {"healthy", "normal"}
+        indice_pred = int(np.argmax(predicciones))
+        clase_detectada = CLASES_DICT[str(indice_pred)]
+        confianza = float(predicciones[indice_pred] * 100.0)
+        es_sano = clase_detectada.lower() in {"healthy", "normal"}
 
-    # Formatear diccionario de probabilidades para componente Label
-    probs_dict = {
-        CLASES_DICT[str(i)]: float(predicciones[i])
-        for i in range(len(CLASES_DICT))
-    }
+        # Formatear diccionario de probabilidades para componente Label
+        probs_dict = {
+            CLASES_DICT[str(i)]: float(predicciones[i])
+            for i in range(len(CLASES_DICT))
+        }
 
-    badge_texto = "ESTADO PULMONAR: NORMAL" if es_sano else "HALLAZGO PATOLÓGICO DETECTADO"
-    badge_color = "#10B981" if es_sano else "#F43F5E"
+        badge_texto = "ESTADO PULMONAR: NORMAL" if es_sano else "HALLAZGO PATOLÓGICO DETECTADO"
+        badge_color = "#10B981" if es_sano else "#F43F5E"
 
-    summary_html = f"""
-    <div style="background: linear-gradient(135deg, rgba(16,24,44,0.9) 0%, rgba(13,21,39,0.95) 100%);
-                padding: 18px 22px; border-radius: 14px; border: 1px solid {badge_color};">
-        <div style="font-size: 0.85rem; font-weight: 700; color: {badge_color}; letter-spacing: 0.5px;">
-            {badge_texto}
+        summary_html = f"""
+        <div style="background: linear-gradient(135deg, rgba(16,24,44,0.9) 0%, rgba(13,21,39,0.95) 100%);
+                    padding: 18px 22px; border-radius: 14px; border: 1px solid {badge_color};">
+            <div style="font-size: 0.85rem; font-weight: 700; color: {badge_color}; letter-spacing: 0.5px;">
+                {badge_texto}
+            </div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #ffffff; margin: 4px 0;">
+                {clase_detectada}
+            </div>
+            <div style="font-size: 0.95rem; color: #cbd5e1;">
+                Confianza diagnóstica: <strong style="color: #00f0ff;">{confianza:.2f}%</strong>
+            </div>
+            <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 6px;">
+                Interpretabilidad: <strong>{method.upper()}</strong> | Paleta térmica: <strong>{colormap}</strong> | Opacidad: <strong>{alpha:.2f}</strong>
+            </div>
         </div>
-        <div style="font-size: 1.8rem; font-weight: 800; color: #ffffff; margin: 4px 0;">
-            {clase_detectada}
+        """
+        return overlay_img, probs_dict, summary_html
+    except Exception as exc:
+        import traceback
+        err_detail = traceback.format_exc()
+        err_html = f"""
+        <div style="background: rgba(244,63,94,0.15); border: 1px solid #f43f5e; border-radius: 12px; padding: 16px;">
+            <div style="color: #f43f5e; font-weight: bold; font-size: 1rem;">⚠️ Error durante la inferencia: {exc}</div>
+            <pre style="color: #ffb4c2; font-size: 11px; margin-top: 8px; overflow-x: auto; white-space: pre-wrap;">{err_detail}</pre>
         </div>
-        <div style="font-size: 0.95rem; color: #cbd5e1;">
-            Confianza diagnóstica: <strong style="color: #00f0ff;">{confianza:.2f}%</strong>
-        </div>
-        <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 6px;">
-            Interpretabilidad: <strong>{method.upper()}</strong> | Paleta térmica: <strong>{colormap}</strong> | Opacidad: <strong>{alpha:.2f}</strong>
-        </div>
-    </div>
-    """
-    return overlay_img, probs_dict, summary_html
+        """
+        return None, {}, err_html
 
 if has_spaces:
-    @spaces.GPU(duration=45)
+    @spaces.GPU(duration=60)
     def predict_and_explain(image, method, alpha, colormap):
         return _run_prediction(image, method, alpha, colormap)
 else:
@@ -191,7 +207,7 @@ custom_theme = gr.themes.Default(
     block_border_color_dark="rgba(0, 240, 255, 0.2)",
 )
 
-with gr.Blocks(theme=custom_theme, title="AI Chest Disease Detection - RACM") as demo:
+with gr.Blocks(title="AI Chest Disease Detection - RACM") as demo:
     gr.HTML(header_html)
 
     with gr.Row():
@@ -250,4 +266,4 @@ with gr.Blocks(theme=custom_theme, title="AI Chest Disease Detection - RACM") as
     )
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch(theme=custom_theme, server_name="0.0.0.0", server_port=7860)
