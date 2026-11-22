@@ -1,0 +1,17 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+Training Data
+Testing Data
+data
+dataset
+.vscode
+.idea
+.obsidian
+*.log
+results/matriz_confusion.png
+results/gradcam_auditoria.png

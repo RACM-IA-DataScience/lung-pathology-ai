@@ -89,6 +89,21 @@ streamlit run src/app.py
 ```
 Esto abrirá automáticamente una pestaña en tu navegador web donde podrás interactuar con el sistema de predicción.
 
+### 🌐 Despliegue Remoto en Render
+
+El repositorio cuenta con configuración lista para desplegarse como un **Web Service en Render**:
+
+1. **Conectar con GitHub:** En [Render.com](https://render.com), inicia sesión y vincula tu cuenta de GitHub.
+2. **Despliegue automático (Recomendado):**
+   - Haz clic en **New +** > **Blueprint**.
+   - Conecta el repositorio `AI-in-HealthCare-Chest-Disease-Detection`.
+   - Render detectará [`render.yaml`](render.yaml) y configurará el entorno, comandos y variables de forma automática.
+3. **Despliegue manual (Web Service):**
+   - **Environment:** `Python` (o `Docker`)
+   - **Build Command:** `pip install --upgrade pip && pip install -r requirements-render.txt`
+   - **Start Command:** `streamlit run src/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false`
+   - **Variables de Entorno:** `PYTHON_VERSION=3.12.10`, `TF_ENABLE_ONEDNN_OPTS=0`, `TF_CPP_MIN_LOG_LEVEL=3`
+
 ## 🧠 Entrenamiento y Evaluación (Opcional)
 
 Si deseas ampliar las 4 clases actuales (recomendado para corregir la baja muestra de `covid-19` y el sesgo pediátrico), reentrenar o evaluar:
@@ -117,5 +132,11 @@ Tras eliminar duplicados recompresos (`73` exactos + `1,096` perceptuales), ampl
 
 Consulta el desglose completo y auditoría visual en [documentacion_proyecto.md](documentacion_proyecto.md), [results/metricas_evaluacion.json](results/metricas_evaluacion.json) y [results/gradcam_auditoria.png](results/gradcam_auditoria.png).
 
-## 📝 Licencia / Autoría
-Desarrollado por Roberto Alejandro Chagra Martínez
+## 👨‍💻 Autoría y Créditos
+
+<div align="center">
+  <img src="assets/racm_logo.jpg" alt="RACM Logo" width="160" style="border-radius: 50%; box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);" />
+  <h3>Roberto Alejandro Chagra Martínez</h3>
+  <p><strong>Artificial Intelligence & Data Science</strong></p>
+  <p>Creador y Desarrollador del Modelo de Diagnóstico de Enfermedades Torácicas con Deep Learning y Explicabilidad Grad-CAM++</p>
+</div>

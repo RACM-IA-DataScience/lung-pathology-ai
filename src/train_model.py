@@ -21,6 +21,13 @@ import tensorflow as tf
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras import layers
 
+from pathlib import Path
+
+# Calculo la raíz del proyecto de forma dinámica para que funcione en WSL y Colab
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_DATA_DIR = BASE_DIR / "data" / "processed"
+AUTOTUNE = tf.data.AUTOTUNE
+
 try:
     from src.model_utils import (
         GRADCAM_LAYER_NAME,
@@ -31,7 +38,7 @@ try:
         unfreeze_top_layers,
     )
 except ImportError:
-    from model_utils import (
+    from src.model_utils import (
         GRADCAM_LAYER_NAME,
         IMG_SIZE,
         build_classifier_model,
@@ -40,8 +47,6 @@ except ImportError:
         unfreeze_top_layers,
     )
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-AUTOTUNE = tf.data.AUTOTUNE
 
 
 def build_datasets(

@@ -1,13 +1,3 @@
-"""Utilidades compartidas de arquitectura, preprocesamiento y Grad-CAM.
-
-Centraliza la construcción de backbones (DenseNet121, ConvNeXtTiny, MobileNetV2),
-su preprocesamiento específico y la generación de mapas de calor Grad-CAM /
-Grad-CAM++ compatibles tanto con los modelos Functional nuevos como con modelos
-Sequential previos.
-"""
-
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass
 from pathlib import Path

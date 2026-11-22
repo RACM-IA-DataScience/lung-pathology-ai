@@ -1,71 +1,71 @@
 {
   "backbone": "densenet121",
-  "test_dir": "data\\processed\\test",
-  "num_samples": 2078,
-  "roc_auc_macro_ovr": 0.9662898887665982,
+  "test_dir": "data/processed/test",
+  "num_samples": 2664,
+  "roc_auc_macro_ovr": 0.9833131809099379,
   "classification_report": {
     "Bacterial Pneumonia": {
-      "precision": 0.7869127516778524,
-      "recall": 0.790893760539629,
-      "f1-score": 0.7888982338099243,
-      "support": 593.0
+      "precision": 0.7695652173913043,
+      "recall": 0.8872180451127819,
+      "f1-score": 0.8242142025611175,
+      "support": 399.0
     },
     "Healthy": {
-      "precision": 0.8760736196319019,
-      "recall": 0.949468085106383,
-      "f1-score": 0.9112954690491385,
-      "support": 752.0
+      "precision": 0.9601827676240209,
+      "recall": 0.9601827676240209,
+      "f1-score": 0.9601827676240209,
+      "support": 1532.0
     },
     "Viral Pneumonia": {
-      "precision": 0.6680497925311203,
-      "recall": 0.7123893805309734,
-      "f1-score": 0.6895074946466809,
+      "precision": 0.7213114754098361,
+      "recall": 0.584070796460177,
+      "f1-score": 0.6454767726161369,
       "support": 226.0
     },
     "covid-19": {
-      "precision": 0.9624413145539906,
-      "recall": 0.8086785009861933,
-      "f1-score": 0.8788853161843515,
+      "precision": 0.9222903885480572,
+      "recall": 0.8895463510848126,
+      "f1-score": 0.9056224899598394,
       "support": 507.0
     },
-    "accuracy": 0.8440808469682387,
+    "accuracy": 0.9039039039039038,
     "macro avg": {
-      "precision": 0.8233693695987162,
-      "recall": 0.8153574317907947,
-      "f1-score": 0.8171466284225238,
-      "support": 2078.0
+      "precision": 0.8433374622433046,
+      "recall": 0.830254490070448,
+      "f1-score": 0.8338740581902787,
+      "support": 2664.0
     },
     "weighted avg": {
-      "precision": 0.849077778295988,
-      "recall": 0.8440808469682387,
-      "f1-score": 0.8443380146630671,
-      "support": 2078.0
+      "precision": 0.904156960276133,
+      "recall": 0.9039039039039038,
+      "f1-score": 0.9027364188598992,
+      "support": 2664.0
     }
   },
   "confusion_matrix_counts": [
     [
-      469,
-      43,
-      75,
-      6
-    ],
-    [
-      25,
-      714,
-      4,
-      9
-    ],
-    [
-      59,
-      5,
-      161,
+      354,
+      2,
+      42,
       1
     ],
     [
-      43,
-      53,
+      17,
+      1471,
+      8,
+      36
+    ],
+    [
+      88,
+      5,
+      132,
+      1
+    ],
+    [
       1,
-      410
+      54,
+      1,
+      451
     ]
   ],
   "class_names": [

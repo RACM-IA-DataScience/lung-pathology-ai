@@ -77,3 +77,10 @@ Sobre el conjunto de prueba de **2,078 radiografías** (agrupadas por paciente y
 - **ROC-AUC Macro (OvR):** **0.9663** (supera al baseline `MobileNetV2` de `0.9642` sobre un test 2× más grande y multi-cohorte).
 - **Prueba en adultos inéditos RSNA (`n = 400` imágenes fuera de train/val/test):** la detección de neumonía en adultos (`Lung_Opacity`) subió de **5.5% (`11/200`)** a **71.0% (`142/200`)**, reduciendo los falsos positivos hacia `covid-19` de **18.5% (`37/200`)** a **0.5% (`1/200`)**, y los sanos adultos alcanzaron **98.0% (`196/200`)**.
 - **Limitación conocida:** `Viral Pneumonia` continúa proviniendo de cohorte pediátrica (Kermany), por lo que la diferenciación etiológica *bacteriana vs. viral* en adultos sigue siendo la principal línea de mejora para pasos futuros.
+
+---
+
+## 4. Autoría y Créditos
+- **Creador del Modelo e Investigador:** Roberto Alejandro Chagra Martínez
+- **Firma:** RACM (Artificial Intelligence & Data Science)
+- **Interfaz Interactiva:** Streamlit + Grad-CAM++ con identidad visual personalizada y paleta ciberpunk médica.

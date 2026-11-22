@@ -21,6 +21,7 @@ Thumbs.db
 # Configuración del editor (VS Code, etc)
 .vscode/
 .idea/
+.obsidian/
 
 # Carpetas de datos pesadas (Imágenes de radiografías)
 Training Data/

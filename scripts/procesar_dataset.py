@@ -26,7 +26,12 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+if "__file__" in globals():
+    BASE_DIR = Path(__file__).resolve().parent.parent
+else:
+    from google.colab import drive
+    drive.mount("/content/drive")
+    BASE_DIR = Path("/content/drive/MyDrive/Drive.alumno.udg.mx/Proyectos/lung-pathology-ai")
 DEFAULT_SOURCES = ["data/raw", "Training Data", "Testing Data"]
 DEFAULT_DEST = "data/clean"
 DEFAULT_MANIFEST = "data/clean_manifest.csv"
@@ -128,21 +133,26 @@ def discover_candidates(source_dirs: Iterable[Path]) -> Dict[str, List[Candidate
             if not class_dir.is_dir() or class_dir.name.startswith((".", "_")):
                 continue
             class_name = class_dir.name
-            with os.scandir(class_dir) as entries:
-                for entry in entries:
-                    if not entry.is_file():
-                        continue
-                    ext = os.path.splitext(entry.name)[1].lower()
+
+            # Recorro recursivamente todas las subcarpetas dentro de la clase
+            for root, dirs, files in os.walk(class_dir):
+                # Excluyo subcarpetas ocultas o auxiliares para no procesar archivos ajenos
+                dirs[:] = [
+                    d for d in sorted(dirs)
+                    if not d.startswith((".", "_")) and d.lower() != "masks"
+                ]
+                for filename in sorted(files):
+                    ext = os.path.splitext(filename)[1].lower()
                     if ext not in VALID_EXTENSIONS:
                         continue
-                    raw_name, k_depth, t_depth = strip_legacy_prefixes(entry.name)
+                    raw_name, k_depth, t_depth = strip_legacy_prefixes(filename)
                     raw_stem = os.path.splitext(raw_name)[0]
                     by_class[class_name].append(
                         CandidateFile(
                             class_name=class_name,
                             source_root=src_root.name,
-                            path=Path(entry.path),
-                            filename=entry.name,
+                            path=Path(root) / filename,
+                            filename=filename,
                             raw_name=raw_name,
                             raw_stem=raw_stem,
                             ext=ext,

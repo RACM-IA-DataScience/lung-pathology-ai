@@ -26,7 +26,7 @@ try:
 except ImportError:
     from procesar_dataset import extract_patient_id
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
 DEFAULT_CLEAN_DIR = "data/clean"
 DEFAULT_PROCESSED_DIR = "data/processed"
 DEFAULT_CLEAN_MANIFEST = "data/clean_manifest.csv"
