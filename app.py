@@ -14,6 +14,12 @@ import numpy as np
 from PIL import Image
 import tensorflow as tf
 
+# En Hugging Face ZeroGPU / Cloud, ejecutar en CPU para evitar bloqueo de VRAM
+try:
+    tf.config.set_visible_devices([], "GPU")
+except Exception:
+    pass
+
 from src.model_utils import (
     IMG_SIZE,
     compute_gradcam_heatmap,
