@@ -1,0 +1,4 @@
+Bacterial Pneumonia
+Healthy
+Viral Pneumonia
+covid-19

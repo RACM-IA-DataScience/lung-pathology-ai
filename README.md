@@ -89,20 +89,21 @@ streamlit run src/app.py
 ```
 Esto abrirá automáticamente una pestaña en tu navegador web donde podrás interactuar con el sistema de predicción.
 
-### 🌐 Despliegue Remoto en Render
+### 📱 Cliente Multiplataforma en Flutter (`lung_pathology_ai/`)
 
-El repositorio cuenta con configuración lista para desplegarse como un **Web Service en Render**:
+El repositorio incluye una aplicación cliente en **Flutter** para ejecutar el sistema en **Windows Desktop**, **Web** y **Android** con la paleta visual neón/cyberpunk del creador **Roberto Alejandro Chagra Martínez (RACM)**:
 
-1. **Conectar con GitHub:** En [Render.com](https://render.com), inicia sesión y vincula tu cuenta de GitHub.
-2. **Despliegue automático (Recomendado):**
-   - Haz clic en **New +** > **Blueprint**.
-   - Conecta el repositorio `AI-in-HealthCare-Chest-Disease-Detection`.
-   - Render detectará [`render.yaml`](render.yaml) y configurará el entorno, comandos y variables de forma automática.
-3. **Despliegue manual (Web Service):**
-   - **Environment:** `Python` (o `Docker`)
-   - **Build Command:** `pip install --upgrade pip && pip install -r requirements-render.txt`
-   - **Start Command:** `streamlit run src/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false`
-   - **Variables de Entorno:** `PYTHON_VERSION=3.12.10`, `TF_ENABLE_ONEDNN_OPTS=0`, `TF_CPP_MIN_LOG_LEVEL=3`
+1. **Iniciar el motor de inferencia y Grad-CAM++ (Python):**
+   ```bash
+   python src/api.py
+   ```
+2. **Ejecutar la app en Flutter:**
+   ```bash
+   cd lung_pathology_ai
+   flutter run -d windows       # Para Escritorio Windows
+   flutter run -d web-server   # Para Navegador Web
+   flutter build apk --release # Para instalar en Teléfono Android
+   ```
 
 ## 🧠 Entrenamiento y Evaluación (Opcional)
 
