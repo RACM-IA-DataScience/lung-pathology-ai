@@ -466,7 +466,7 @@ def cargar_modelo_y_meta():
     if not model_path.exists():
         return None, None
     try:
-        loaded_model = tf.keras.models.load_model(model_path)
+        loaded_model = tf.keras.models.load_model(model_path, compile=False)
     except Exception as exc:
         logging.error(f"Error al cargar models/modelo_chest_disease.keras: {exc}")
         return None, None
@@ -601,103 +601,111 @@ else:
     )
 
     if uploaded_file is not None:
-        image = Image.open(uploaded_file)
+        try:
+            image = Image.open(uploaded_file)
 
-        with st.spinner("⚡ Ejecutando inferencia neuronal y calculando gradientes Grad-CAM..."):
-            tensor_imagen = preprocess_pil_image(
-                image, backbone=backbone, img_size=img_size
-            )
-            explain_idx = None if target_class_choice == -1 else int(target_class_choice)
-            heatmap, explained_idx, predicciones = compute_gradcam_heatmap(
-                model=model,
-                preprocessed_tensor=tensor_imagen,
-                class_index=explain_idx,
-                method=gradcam_method,
-            )
-            overlay_img = overlay_gradcam(
-                image, heatmap, alpha=alpha_overlay, cmap_name=cmap_choice
-            )
-            zone_summary = summarize_activation_zones(heatmap)
+            with st.spinner("⚡ Ejecutando inferencia neuronal y calculando gradientes Grad-CAM..."):
+                tensor_imagen = preprocess_pil_image(
+                    image, backbone=backbone, img_size=img_size
+                )
+                explain_idx = None if target_class_choice == -1 else int(target_class_choice)
+                heatmap, explained_idx, predicciones = compute_gradcam_heatmap(
+                    model=model,
+                    preprocessed_tensor=tensor_imagen,
+                    class_index=explain_idx,
+                    method=gradcam_method,
+                )
+                overlay_img = overlay_gradcam(
+                    image, heatmap, alpha=alpha_overlay, cmap_name=cmap_choice
+                )
+                zone_summary = summarize_activation_zones(heatmap)
 
-            indice_prediccion = int(np.argmax(predicciones))
-            clase_detectada = CLASES_DICT[str(indice_prediccion)]
-            clase_explicada = CLASES_DICT[str(explained_idx)]
-            confianza_detectada = float(predicciones[indice_prediccion] * 100.0)
+                indice_prediccion = int(np.argmax(predicciones))
+                clase_detectada = CLASES_DICT[str(indice_prediccion)]
+                clase_explicada = CLASES_DICT[str(explained_idx)]
+                confianza_detectada = float(predicciones[indice_prediccion] * 100.0)
 
-        col_img1, col_img2, col_res = st.columns([1.0, 1.0, 1.15], gap="medium")
+            # Liberar memoria de tensores intermedios inmediatamente (clave para Render 512MB RAM)
+            import gc
+            gc.collect()
 
-        with col_img1:
-            st.markdown("#### 🖼️ Radiografía Original")
-            st.image(image, caption="Entrada clínica (CXR)", use_container_width=True)
+            col_img1, col_img2, col_res = st.columns([1.0, 1.0, 1.15], gap="medium")
 
-        with col_img2:
-            st.markdown("#### 🎯 Mapa de Atención Grad-CAM")
-            st.image(
-                overlay_img,
-                caption=f"Foco de atención ({gradcam_method.upper()}) para: {clase_explicada}",
-                use_container_width=True,
-            )
+            with col_img1:
+                st.markdown("#### 🖼️ Radiografía Original")
+                st.image(image, caption="Entrada clínica (CXR)", use_container_width=True)
 
-        with col_res:
-            st.markdown("#### 📊 Diagnóstico del Modelo")
+            with col_img2:
+                st.markdown("#### 🎯 Mapa de Atención Grad-CAM")
+                st.image(
+                    overlay_img,
+                    caption=f"Foco de atención ({gradcam_method.upper()}) para: {clase_explicada}",
+                    use_container_width=True,
+                )
 
-            es_sano = clase_detectada.lower() in {"healthy", "normal"}
-            box_class = "result-box-healthy" if es_sano else "result-box-disease"
-            tag_class = "result-tag-healthy" if es_sano else "result-tag-disease"
-            tag_text = "ESTADO PULMONAR: NORMAL" if es_sano else "HALLAZGO PATOLÓGICO DETECTADO"
+            with col_res:
+                st.markdown("#### 📊 Diagnóstico del Modelo")
 
-            st.markdown(
-                f"""
-                <div class="{box_class}">
-                    <div class="{tag_class}">{tag_text}</div>
-                    <div class="result-value">{clase_detectada}</div>
-                    <div class="confidence-meter">
-                        Confianza diagnóstica: <strong>{confianza_detectada:.2f}%</strong>
+                es_sano = clase_detectada.lower() in {"healthy", "normal"}
+                box_class = "result-box-healthy" if es_sano else "result-box-disease"
+                tag_class = "result-tag-healthy" if es_sano else "result-tag-disease"
+                tag_text = "ESTADO PULMONAR: NORMAL" if es_sano else "HALLAZGO PATOLÓGICO DETECTADO"
+
+                st.markdown(
+                    f"""
+                    <div class="{box_class}">
+                        <div class="{tag_class}">{tag_text}</div>
+                        <div class="result-value">{clase_detectada}</div>
+                        <div class="confidence-meter">
+                            Confianza diagnóstica: <strong>{confianza_detectada:.2f}%</strong>
+                        </div>
                     </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            if confianza_detectada < LOW_CONFIDENCE_THRESHOLD:
-                st.warning(
-                    f"⚠️ **Confianza reducida (< {LOW_CONFIDENCE_THRESHOLD:.0f}%):** "
-                    "El patrón radiológico presenta ambigüedad; se aconseja corroborar con proyección lateral o TAC."
+                    """,
+                    unsafe_allow_html=True,
                 )
 
-            st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-            st.markdown("**Distribución de probabilidad por patología:**")
-            orden = sorted(
-                range(len(CLASES_DICT)),
-                key=lambda i: float(predicciones[i]),
-                reverse=True,
-            )
-            for i in orden:
-                nombre_clase = CLASES_DICT[str(i)]
-                porcentaje = float(predicciones[i])
-                porcentaje_barra = max(0.0, min(1.0, porcentaje))
-                st.write(f"**{nombre_clase}** — `{porcentaje * 100:.2f}%`")
-                st.progress(porcentaje_barra)
+                if confianza_detectada < LOW_CONFIDENCE_THRESHOLD:
+                    st.warning(
+                        f"⚠️ **Confianza reducida (< {LOW_CONFIDENCE_THRESHOLD:.0f}%):** "
+                        "El patrón radiológico presenta ambigüedad; se aconseja corroborar con proyección lateral o TAC."
+                    )
 
-            if zone_summary["zones"]:
-                st.markdown("---")
-                st.markdown("**📍 Segmentación de atención pulmonar:**")
-                st.caption(
-                    f"Región dominante: **{zone_summary['top_zone']}** "
-                    f"({zone_summary['top_share']:.1f}% de masa térmica)"
+                st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+                st.markdown("**Distribución de probabilidad por patología:**")
+                orden = sorted(
+                    range(len(CLASES_DICT)),
+                    key=lambda i: float(predicciones[i]),
+                    reverse=True,
                 )
-                top_zones = sorted(
-                    zone_summary["zones"].items(), key=lambda kv: kv[1], reverse=True
-                )[:3]
-                for z_name, z_pct in top_zones:
-                    st.write(f"- {z_name}: **{z_pct:.1f}%**")
+                for i in orden:
+                    nombre_clase = CLASES_DICT[str(i)]
+                    porcentaje = float(predicciones[i])
+                    porcentaje_barra = max(0.0, min(1.0, porcentaje))
+                    st.write(f"**{nombre_clase}** — `{porcentaje * 100:.2f}%`")
+                    st.progress(porcentaje_barra)
 
-        st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
-        st.info(
-            "ℹ️ **Aviso Clínico de Asistencia por IA:** Este modelo ha sido entrenado para fines de investigación y soporte "
-            "al diagnóstico. Corrobora siempre en el mapa Grad-CAM++ que los gradientes de activación se ubiquen dentro de "
-            "los campos pleuropulmonares y no en marcapasos, electrodos ni rotulación técnica externa."
-        )
+                if zone_summary["zones"]:
+                    st.markdown("---")
+                    st.markdown("**📍 Segmentación de atención pulmonar:**")
+                    st.caption(
+                        f"Región dominante: **{zone_summary['top_zone']}** "
+                        f"({zone_summary['top_share']:.1f}% de masa térmica)"
+                    )
+                    top_zones = sorted(
+                        zone_summary["zones"].items(), key=lambda kv: kv[1], reverse=True
+                    )[:3]
+                    for z_name, z_pct in top_zones:
+                        st.write(f"- {z_name}: **{z_pct:.1f}%**")
+
+            st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+            st.info(
+                "ℹ️ **Aviso Clínico de Asistencia por IA:** Este modelo ha sido entrenado para fines de investigación y soporte "
+                "al diagnóstico. Corrobora siempre en el mapa Grad-CAM++ que los gradientes de activación se ubiquen dentro de "
+                "los campos pleuropulmonares y no en marcapasos, electrodos ni rotulación técnica externa."
+            )
+        except Exception as err:
+            logging.error(f"Error procesando la radiografía: {err}", exc_info=True)
+            st.error(f"⚠️ Ocurrió un error inesperado al procesar la imagen: {err}")
     else:
         # Estado inicial informativo cuando aún no se sube imagen
         st.markdown(

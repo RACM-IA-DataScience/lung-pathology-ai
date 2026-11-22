@@ -5,7 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive \
     PORT=10000 \
     TF_ENABLE_ONEDNN_OPTS=0 \
-    TF_CPP_MIN_LOG_LEVEL=3
+    TF_CPP_MIN_LOG_LEVEL=3 \
+    MALLOC_TRIM_THRESHOLD_=65536
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
