@@ -1,7 +1,7 @@
 ---
 title: AI Chest Disease Detection - RACM
 emoji: 🫁
-colorFrom: cyan
+colorFrom: blue
 colorTo: purple
 sdk: gradio
 app_file: app.py
